@@ -124,6 +124,13 @@ svg .val{fill:var(--fg);font-weight:600}
 .plans{display:flex;gap:3px}
 .plans span{border:1px dashed var(--line);border-radius:4px;padding:1px 4px;font-size:10px;color:var(--muted)}
 .inc td:first-child,.inc th:first-child{position:sticky;left:0;background:var(--surface2);z-index:1}
+/* school summary */
+.mat td{text-align:center;padding:6px 4px}
+.mat th{text-align:center;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);min-width:84px;white-space:normal}
+.mat td:first-child,.mat th:first-child{text-align:left;position:sticky;left:0;background:var(--surface);z-index:1}
+.cell{display:flex;flex-direction:column;align-items:center;gap:3px;border:0;background:none;padding:2px;width:100%;cursor:pointer;font:inherit;color:inherit}
+.cell .pill{font-size:11px;padding:1px 7px}
+.cell small{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
 /* modal + login */
 .overlay{position:fixed;inset:0;background:rgba(20,15,10,.45);display:flex;align-items:flex-start;justify-content:center;padding:max(24px,env(safe-area-inset-top,0px)) max(16px,env(safe-area-inset-right,0px)) 24px max(16px,env(safe-area-inset-left,0px));z-index:50;overflow:auto}
 .modal{background:var(--surface);border:1px solid var(--line);border-radius:10px;max-width:900px;width:100%;padding:16px;display:flex;flex-direction:column;gap:10px}
@@ -162,12 +169,12 @@ svg .val{fill:var(--fg);font-weight:600}
         <button class="btn" data-tab="att" aria-pressed="true">Attainment</button>
         <button class="btn" data-tab="stu" aria-pressed="false">Student</button>
         <button class="btn" data-tab="inc" aria-pressed="false">Inclusion</button>
+        <button class="btn" data-tab="sum" aria-pressed="false">School summary</button>
         <button class="btn" data-tab="notes" aria-pressed="false">Data notes</button>
       </nav>
       <div class="vcol" id="viewCol">
         <span class="eyebrow" style="color:var(--muted)">View</span>
         <button class="btn" data-view="focus" aria-pressed="true">Section focus</button>
-        <button class="btn" data-view="compare" aria-pressed="false">Compare sections</button>
         <button class="btn" data-view="all" aria-pressed="false">All sections</button>
       </div>
       <div class="ctrls" id="ctrls">
@@ -255,6 +262,16 @@ svg .val{fill:var(--fg);font-weight:600}
     </section>
   </div>
 
+  <div id="tab-sum" hidden>
+    <section class="card">
+      <div class="rhead"><div><span class="eyebrow">Whole school</span><h2>Judgments by grade and subject</h2>
+        <div class="small muted" id="sumCtx"></div></div>
+        <div class="seg" role="group" aria-label="Summary mode"><button class="btn sm" id="sumAtt" aria-pressed="true">Attainment</button><button class="btn sm" id="sumProg" aria-pressed="false">Progress</button></div></div>
+      <div class="ctrls" id="sumCtrls"></div>
+      <div class="tw inner"><table class="mat" id="sumTable"></table></div>
+      <div class="small muted" id="sumLegend"></div>
+    </section>
+  </div>
   <div id="tab-notes" hidden></div>
 
   <div class="foot"><span>IASPIRE Series · built from the school's mark files</span><span id="genAt"></span></div>
@@ -439,16 +456,17 @@ function renderHeader() {
   document.querySelectorAll('[data-cohort]').forEach(b => b.setAttribute('aria-pressed', b.dataset.cohort === st.cohort));
   const att = st.tab === 'att', stu = st.tab === 'stu';
   $('viewCol').hidden = !att; $('scopeBox').hidden = !att; $('cohortBox').hidden = !att;
-  $('ctrls').hidden = !(att || stu);
-  $('lClass').hidden = st.scope === 'phase' && att; $('lPhase').hidden = !(st.scope === 'phase' && att);
-  $('lSec').hidden = !(stu || useSec());
+  $('ctrls').hidden = !(att || stu || st.tab === 'sum');
+  if (st.tab === 'sum') { ['lClass', 'lPhase', 'lSec', 'scopeBox'].forEach(id => $(id).hidden = true); $('cohortBox').hidden = false; }
+  if (st.tab !== 'sum') { $('lClass').hidden = st.scope === 'phase' && att; $('lPhase').hidden = !(st.scope === 'phase' && att);
+  $('lSec').hidden = !(stu || useSec()); }
   $('fClass').value = st.grade; $('fPhase').value = st.phase; $('fCat').value = st.cat;
   const secs = sectionsFor(st.grade);
   $('fSec').innerHTML = (stu ? '<option value="all">All sections</option>' : '') + secs.map(s => `<option value="${s}">Section ${s}</option>`).join('');
   if (!stu && st.sec === 'all') st.sec = secs[0];
   $('fSec').value = st.sec;
-  $('brandSub').textContent = { att: 'ATTAINMENT & PROGRESS', stu: 'STUDENT VIEW', inc: 'INCLUSION', notes: 'DATA NOTES' }[st.tab];
-  ['att', 'stu', 'inc', 'notes'].forEach(t => $('tab-' + t).hidden = t !== st.tab);
+  $('brandSub').textContent = { att: 'ATTAINMENT & PROGRESS', stu: 'STUDENT VIEW', inc: 'INCLUSION', sum: 'SCHOOL SUMMARY', notes: 'DATA NOTES' }[st.tab];
+  ['att', 'stu', 'inc', 'sum', 'notes'].forEach(t => $('tab-' + t).hidden = t !== st.tab);
   $('batchCtx').textContent = st.tab === 'stu' ? `Grade ${st.grade} · ${st.sec === 'all' ? 'All sections' : 'Section ' + st.sec}` : st.tab === 'att' ? $('batchCtx').textContent : '';
 }
 const scopeLabel = () => st.scope === 'phase' ? $('fPhase').selectedOptions[0].text : `Grade ${st.grade}`;
@@ -660,6 +678,38 @@ function renderInc() {
   [['iG', 'grade'], ['iS', 'sec'], ['iX', 'sex'], ['iC', 'cat'], ['iW', 'wave']].forEach(([id, k]) => $(id).onchange = () => { incF[k] = $(id).value; renderInc(); });
 }
 
+/* ---------- School summary ---------- */
+st.sumMode = 'att';
+function renderSum() {
+  const att = st.sumMode === 'att', within = st.cohort === 'within';
+  $('sumAtt').setAttribute('aria-pressed', att); $('sumProg').setAttribute('aria-pressed', !att);
+  $('sumAtt').onclick = () => { st.sumMode = 'att'; renderSum(); }; $('sumProg').onclick = () => { st.sumMode = 'prog'; renderSum(); };
+  const y = EX[st.attE].y;
+  $('sumCtrls').innerHTML = att ? `<label>Year<select id="sY">${YEARS.map((yy, i) => EX.some(e => e.y === i) ? `<option value="${i}" ${i === y ? 'selected' : ''}>${yy}</option>` : '').join('')}</select></label><label>Score<select id="sE">${EX.filter(e => e.y === y).map(e => `<option value="${e.i}" ${e.i === st.attE ? 'selected' : ''}>${e.k}</option>`).join('')}</select></label>`
+    : `<label>Start exam<select id="sS">${examOptions(null, st.pS)}</select></label><label>End exam<select id="sEnd">${examOptions(null, st.pE)}</select></label>`;
+  if (att) { $('sY').onchange = () => { const yy = +$('sY').value, k = EX[st.attE].k; st.attE = exIdx(yy, k) >= 0 ? exIdx(yy, k) : EX.find(e => e.y === yy).i; renderSum(); }; $('sE').onchange = () => { st.attE = +$('sE').value; renderSum(); }; }
+  else { $('sS').onchange = () => { st.pS = +$('sS').value; renderSum(); }; $('sEnd').onchange = () => { st.pE = +$('sEnd').value; renderSum(); }; }
+  const G = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12], cohort = att ? st.cohort : 'within';
+  const popG = g => att ? pop(y, { grades: [g], sec: null, cohort }) : pop(CUR, { grades: [g], sec: null, cohort: 'within' });
+  const pops = {}; G.forEach(g => pops[g] = popG(g));
+  const has = new Set(); G.forEach(g => pops[g].forEach(e => { const m = e.rec && e.rec.s.get(att ? st.attE : st.pE); if (m) m.forEach((v, k) => has.add(k)); }));
+  const cols = [...has].sort((a, b) => a - b);
+  const calc = (g, subs) => att ? attain(pops[g], subs, st.attE) : progress(pops[g], subs, st.pS, st.pE);
+  let h = `<thead><tr><th>Grade</th><th>All subjects</th>${cols.map(si => `<th>${esc(SUBJ[si])}</th>`).join('')}</tr></thead><tbody>`;
+  for (const g of G) {
+    const cell = (subs, key) => { const r = calc(g, subs); if (!r.n) return '<td class="muted">–</td>'; const v = att ? r.al : r.eb;
+      return `<td><button class="cell" data-g="${g}" data-s="${key}" title="${att ? 'At least in line' : 'Expected or better'} ${fp(v)} of ${r.n}">${pill(r.j)}<small>${Math.round(v)}% · ${r.n}</small></button></td>`; };
+    h += `<tr><td><b>Grade ${g}</b></td>${cell(cols, 'all')}${cols.map(si => cell([si], si)).join('')}</tr>`;
+  }
+  $('sumTable').innerHTML = h + '</tbody>';
+  $('sumCtx').textContent = att ? `All sections · ${EX[st.attE].label} · ${within ? 'Within cohort (current students)' : 'Cross-cohort (students in that grade that year)'} · Category: ${$('fCat').selectedOptions[0].text}. Select a cell to open that grade and subject.`
+    : `All sections · ${EX[st.pS].label} → ${EX[st.pE].label} · current students · Category: ${$('fCat').selectedOptions[0].text}. Select a cell to open that grade and subject.`;
+  $('sumLegend').textContent = `Cell: judgment · ${att ? '% at least in line' : '% expected or better'} · number of results.`;
+  $('sumTable').querySelectorAll('.cell').forEach(b => b.onclick = () => {
+    st.tab = 'att'; st.scope = 'class'; st.view = 'all'; st.grade = +b.dataset.g; if (!att) st.cohort = 'within';
+    st.subs = new Set(b.dataset.s === 'all' ? cols : [+b.dataset.s]); render(); window.scrollTo(0, 0); });
+}
+
 /* ---------- Notes ---------- */
 function renderNotes() {
   const L = D.LOG;
@@ -681,7 +731,7 @@ function renderNotes() {
 /* ---------- render / boot ---------- */
 function render() {
   renderHeader(); drill = {};
-  if (st.tab === 'att') renderAtt(); else if (st.tab === 'stu') renderStu(); else if (st.tab === 'inc') renderInc(); else renderNotes();
+  if (st.tab === 'att') renderAtt(); else if (st.tab === 'stu') renderStu(); else if (st.tab === 'inc') renderInc(); else if (st.tab === 'sum') renderSum(); else renderNotes();
 }
 initHeader(); svInit(); incInit(); syncSubs();
 $('genAt').textContent = 'Data: Sem 1 2026-27 and history from 2023-24';
